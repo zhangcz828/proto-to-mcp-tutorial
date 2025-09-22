@@ -10,6 +10,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/reflection"
 
 	pb "proto-to-mcp-tutorial/generated/go"
 )
@@ -58,6 +59,8 @@ func main() {
 
 		s := grpc.NewServer()
 		pb.RegisterBookstoreServiceServer(s, srv)
+
+		reflection.Register(s)
 
 		log.Println("gRPC server starting on :9090")
 		if err := s.Serve(lis); err != nil {

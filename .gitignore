@@ -1,1 +1,10 @@
 vendor/
+# ignore the generated binary file protoc-gen-mcp but not the folder
+./protoc-gen-mcp
+*.pyc
+__pycache__/
+.env
+.venv/
+venv/
+env/
+*.log

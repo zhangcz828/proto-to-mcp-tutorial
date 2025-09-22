@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package mcp.v1;
+
+option go_package = "proto-to-mcp-tutorial/generated/go/mcp/protobuf";
+
+import "google/protobuf/descriptor.proto";
+
+// Custom extension for marking methods as MCP tools
+extend google.protobuf.MethodOptions {
+ MCPToolOptions tool = 50003;
+}
+
+// MCP tool configuration options
+message MCPToolOptions {
+  // Whether this method should be exposed as an MCP tool
+  bool enabled = 1;
+}

@@ -40,6 +40,7 @@ paths:
             parameters:
                 - name: bookId
                   in: path
+                  description: The ID of the book to retrieve
                   required: true
                   schema:
                     type: string
