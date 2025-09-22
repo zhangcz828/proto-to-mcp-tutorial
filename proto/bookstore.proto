@@ -1,0 +1,40 @@
+syntax = "proto3";
+package bookstore.v1;
+import "google/api/annotations.proto";
+
+// option go_package = "github.com/example/bookstore/generated/go/bookstore/v1";
+option go_package = "generated/go/bookstore/v1";
+
+
+service BookstoreService {
+  // Get a book by ID
+  rpc GetBook(GetBookRequest) returns (Book) {
+    option (google.api.http) = {
+      get: "/v1/books/{book_id}"
+    };
+  }
+  
+  // Create a new book
+  rpc CreateBook(CreateBookRequest) returns (Book) {
+    option (google.api.http) = {
+      post: "/v1/books"
+      body: "book"
+    };
+  }
+}
+
+message Book {
+  string book_id = 1;
+  string title = 2;
+  string author = 3;
+  int32 pages = 4;
+}
+
+message GetBookRequest {
+  string book_id = 1;
+}
+
+message CreateBookRequest {
+  Book book = 1;
+}
+
