@@ -25,7 +25,11 @@ func main() {
 		// Extract MCP methods from the proto files
 		mcpMethods := extractMCPMethods(gen)
 
-		// Always generate file, even if no methods
+		if len(mcpMethods) == 0 {
+			return nil // No MCP methods found
+		}
+
+		// Generate main server file
 		generateMCPServer(gen, mcpMethods)
 
 		return nil
@@ -44,12 +48,10 @@ type MCPMethod struct {
 }
 
 type MCPParameter struct {
-	Name        string      `json:"-"`
-	Type        interface{} `json:"type,omitempty"`
-	Required    bool        `json:"-"`
-	Description string      `json:"description,omitempty"`
-	Properties  interface{} `json:"properties,omitempty"`
-	Items       interface{} `json:"items,omitempty"`
+	Name        string
+	Type        string
+	Required    bool
+	Description string
 }
 
 type HTTPInfo struct {
@@ -68,8 +70,7 @@ func extractMCPMethods(gen *protogen.Plugin) []*MCPMethod {
 
 		for _, service := range file.Services {
 			for _, method := range service.Methods {
-				// Check if the method has MCP tool annotation, fallback to HTTP annotation
-				if hasMCPToolAnnotation(method) || hasHTTPAnnotation(method) {
+				if hasMCPToolAnnotation(method) {
 					mcpMethod := &MCPMethod{
 						Service:     service,
 						Method:      method,
@@ -78,16 +79,13 @@ func extractMCPMethods(gen *protogen.Plugin) []*MCPMethod {
 						HTTPInfo:    extractHTTPInfo(method),
 						Input:       method.Input,
 						Output:      method.Output,
-						Parameters:  extractParameters(method.Input, 0),
+						Parameters:  extractParameters(method.Input),
 					}
 					mcpMethods = append(mcpMethods, mcpMethod)
 				}
 			}
 		}
 	}
-
-	// Debug: print number of methods found (removed for clean output)
-	// fmt.Printf("DEBUG: Found %d MCP methods\n", len(mcpMethods))
 
 	return mcpMethods
 }
@@ -108,25 +106,17 @@ func hasMCPToolAnnotation(method *protogen.Method) bool {
 	return toolOptions != nil && toolOptions.Enabled
 }
 
-func hasHTTPAnnotation(method *protogen.Method) bool {
-	options := method.Desc.Options().(*descriptorpb.MethodOptions)
-	if options == nil {
-		return false
-	}
-	return proto.HasExtension(options, httpannotations.E_Http)
-}
-
-func extractParameters(inputType *protogen.Message, depth int) []*MCPParameter {
+func extractParameters(inputType *protogen.Message) []*MCPParameter {
 	var parameters []*MCPParameter
 
 	if inputType != nil {
 		for _, field := range inputType.Fields {
 			param := &MCPParameter{
 				Name:        string(field.Desc.Name()),
-				Description: extractFieldDescription(field),
+				Type:        getFieldType(field),
 				Required:    isFieldRequired(field),
+				Description: extractFieldDescription(field),
 			}
-			getFieldType(field, param, depth+1)
 			parameters = append(parameters, param)
 		}
 	}
@@ -136,92 +126,33 @@ func extractParameters(inputType *protogen.Message, depth int) []*MCPParameter {
 
 func isFieldRequired(field *protogen.Field) bool {
 	// In proto3, technically all fields are optional, but for business logic:
-	// - Message type fields are usually required (like Book object)
-	// - Primary key fields are usually required
-	// - Path parameters are usually required
-
-	fieldName := string(field.Desc.Name())
-
-	// Message types are typically required
-	if field.Desc.Kind() == protoreflect.MessageKind {
-		return true
+	// If the field not marked as optional keyword, consider it required
+	if field.Desc.HasOptionalKeyword() {
+		return false
 	}
 
-	// ID fields are typically required
-	if strings.Contains(strings.ToLower(fieldName), "id") {
-		return true
-	}
-
-	// By default, consider fields optional
-	return false
+	return true
 }
 
-func getFieldType(field *protogen.Field, param *MCPParameter, depth int) {
+func getFieldType(field *protogen.Field) string {
 	// Check if the field is repeated (array/list)
 	if field.Desc.Cardinality() == protoreflect.Repeated {
-		param.Type = "array"
-		items := &MCPParameter{}
-		param.Items = items
-		// Recurse to get the type of the items in the array
-		// Create a temporary field descriptor for the underlying type
-		// This is a bit of a hack, as we don't have a direct way to get a singular field
-		// We'll just handle the kind
-		switch field.Desc.Kind() {
-		case protoreflect.StringKind:
-			items.Type = "string"
-		case protoreflect.Int32Kind, protoreflect.Int64Kind:
-			items.Type = "integer"
-		case protoreflect.BoolKind:
-			items.Type = "boolean"
-		case protoreflect.MessageKind:
-			items.Type = "object"
-			if depth < 5 { // Limit recursion depth
-				properties := make(map[string]*MCPParameter)
-				for _, f := range field.Message.Fields {
-					prop := &MCPParameter{
-						Name:        string(f.Desc.Name()),
-						Description: extractFieldDescription(f),
-						Required:    isFieldRequired(f),
-					}
-					getFieldType(f, prop, depth+1)
-					properties[prop.Name] = prop
-				}
-				items.Properties = properties
-			}
-		case protoreflect.EnumKind:
-			items.Type = "string"
-		default:
-			items.Type = "string"
-		}
-		return
+		return "list"
 	}
 
 	switch field.Desc.Kind() {
 	case protoreflect.StringKind:
-		param.Type = "string"
+		return "string"
 	case protoreflect.Int32Kind, protoreflect.Int64Kind:
-		param.Type = "integer"
+		return "integer"
 	case protoreflect.BoolKind:
-		param.Type = "boolean"
+		return "boolean"
 	case protoreflect.MessageKind:
-		param.Type = "object"
-		if depth < 5 { // Limit recursion depth
-			properties := make(map[string]*MCPParameter)
-			for _, f := range field.Message.Fields {
-				prop := &MCPParameter{
-					Name:        string(f.Desc.Name()),
-					Description: extractFieldDescription(f),
-					Required:    isFieldRequired(f),
-				}
-				getFieldType(f, prop, depth+1)
-				properties[prop.Name] = prop
-			}
-			param.Properties = properties
-		}
+		return "object"
 	case protoreflect.EnumKind:
-		param.Type = "string"
+		return "string"
 	default:
-		param.Type = "string"
+		return "string"
 	}
 }
 
@@ -299,46 +230,32 @@ func generateMCPServer(gen *protogen.Plugin, mcpMethods []*MCPMethod) {
 	outputFile := gen.NewGeneratedFile("mcp_server.py", ".")
 
 	funcMap := template.FuncMap{
-		"contains": strings.Contains,
-		"printf":   fmt.Sprintf,
-		"getPythonType": func(param *MCPParameter) string {
-			if param.Type == "string" {
-				return "str"
+		"contains": func(s, substr string) bool {
+			return strings.Contains(s, substr)
+		},
+		"printf": fmt.Sprintf,
+		"indent": func(text string, spaces int) string {
+			if text == "" {
+				return text
 			}
-			if param.Type == "integer" {
-				return "int"
+			lines := strings.Split(text, "\n")
+			indentStr := strings.Repeat(" ", spaces)
+			var result []string
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "" {
+					result = append(result, indentStr+line)
+				} else if i < len(lines)-1 { // Keep empty lines except the last one
+					result = append(result, "")
+				}
 			}
-			if param.Type == "boolean" {
-				return "bool"
-			}
-			if param.Type == "array" {
-				return "list"
-			}
-			if param.Type == "object" {
-				return "dict"
-			}
-			return "Any"
+			return strings.Join(result, "\n")
 		},
 	}
 
-	var buf bytes.Buffer
 	tmpl := template.Must(template.New("mcp_server").Funcs(funcMap).Parse(mcpServerTemplate))
 
-	data := struct {
-		ServiceName string
-		Methods     []*MCPMethod
-	}{}
-
-	if len(mcpMethods) > 0 {
-		data.ServiceName = string(mcpMethods[0].Service.Desc.Name())
-	} else {
-		data.ServiceName = "BookstoreService" // Default service name
-	}
-	data.Methods = mcpMethods
-
-	if err := tmpl.Execute(&buf, data); err != nil {
-		// Write error to output file for debugging
-		outputFile.P("# Template execution error: " + err.Error())
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, mcpMethods); err != nil {
 		return
 	}
 
@@ -347,91 +264,115 @@ func generateMCPServer(gen *protogen.Plugin, mcpMethods []*MCPMethod) {
 
 const mcpServerTemplate = `#!/usr/bin/env python3
 """
-MCP Server for {{.ServiceName}} - Auto-generated from Protocol Buffers
+MCP Server for UPM API - Auto-generated from Protocol Buffers
+
+This server provides access to project management operations
+through the Model Context Protocol.
 """
 
-from typing import Any, Dict, Optional, List
+import os
+import sys
+from typing import Any
+import json
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# Configuration
-VERIFY_SSL: bool = False
+API_BASE = 'http://localhost:8080'
+VERIFY_SSL = False
 
 # Initialize FastMCP
-mcp = FastMCP("{{.ServiceName}} MCP Server")
+mcp = FastMCP('Bookstore Server')
 
-async def make_api_request(url: str, method: str = "GET", payload: Optional[dict] = None) -> Dict[str, Any]:
-    """Make an HTTP request to the service API."""
-    headers = {"Content-Type": "application/json"}
-    
+async def make_api_request(url: str, method: str = "GET", payload: dict = None) -> dict[str, Any] | None:
+    """Make a HTTP request to the specified URL."""
+
+    headers = {
+        "Content-Type": "application/json",
+    }
+    # Use SSL verification based on environment variable
     async with httpx.AsyncClient(verify=VERIFY_SSL) as client:
         try:
             if method.upper() == "GET":
                 response = await client.get(url, headers=headers, timeout=30.0)
-            elif method.upper() == "POST":
-                response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             elif method.upper() == "PUT":
                 response = await client.put(url, headers=headers, json=payload, timeout=30.0)
+            elif method.upper() == "POST":
+                response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             elif method.upper() == "DELETE":
                 response = await client.delete(url, headers=headers, timeout=30.0)
             elif method.upper() == "PATCH":
                 response = await client.patch(url, headers=headers, json=payload, timeout=30.0)
             else:
                 return {"error": f"Unsupported HTTP method: {method}"}
-
+            
             response.raise_for_status()
             
+            # Handle DELETE responses that might be empty
+            if method.upper() == "DELETE":
+                if response.status_code == 200 or response.status_code == 204:
+                    return {"success": True, "message": "Resource deleted successfully"}
+                
+            # Try to parse JSON, return empty dict if no content
             try:
                 return response.json()
-            except Exception:
+            except:
                 return {"success": True}
-
+                
         except httpx.HTTPStatusError as e:
             return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
         except Exception as e:
             return {"error": str(e)}
 
 # MCP Tools
-{{range $method := .Methods}}
+
+{{range .}}
 @mcp.tool()
-async def {{$method.ToolName}}({{range $i, $param := $method.Parameters}}{{if $i}}, {{end}}{{$param.Name}}: {{if $param.Required}}{{getPythonType $param}}{{else}}Optional[{{getPythonType $param}}] = None{{end}}{{end}}) -> str:
-    """{{$method.Description}}
-
-    {{if $method.HTTPInfo}}HTTP: {{$method.HTTPInfo.Method}} {{$method.HTTPInfo.Path}}{{end}}
-    {{if $method.Parameters}}
-    Parameters:{{range $param := $method.Parameters}}
-    - {{$param.Name}} ({{$param.Type}}): {{if $param.Description}}{{$param.Description}}{{else}}{{$param.Name}} parameter{{end}}{{end}}{{end}}
-
+async def {{.ToolName}}({{range $i, $param := .Parameters}}{{if $i}}, {{end}}{{$param.Name}}: {{if eq $param.Type "string"}}str{{else if eq $param.Type "integer"}}int{{else if eq $param.Type "boolean"}}bool{{else if eq $param.Type "list"}}list{{else}}dict{{end}}{{if not $param.Required}} = None{{end}}{{end}}) -> str:
+    """{{.Description}}
+    {{if .HTTPInfo}}
+    HTTP: {{.HTTPInfo.Method}} {{.HTTPInfo.Path}}{{end}}
+    
+    Parameters:{{range .Parameters}}
+    - {{.Name}} ({{.Type}}{{if not .Required}}, optional{{end}}): {{if contains .Description "\n"}}{{indent .Description 6}}{{else}}{{.Description}}{{end}}{{end}}
+    
     Returns:
     - str: JSON formatted response from the API containing the result or error information
     """
     try:
-        {{if $method.HTTPInfo}}url = "http://localhost:8080{{$method.HTTPInfo.Path}}"
+        {{if .HTTPInfo}}
+        # Construct the URL
+        url = f"{API_BASE}{{.HTTPInfo.Path}}"
+        {{$httpInfo := .HTTPInfo}}{{range .Parameters}}{{if and .Required (contains $httpInfo.Path (printf "{%s}" .Name))}}
+        url = url.replace("{" + "{{.Name}}" + "}", str({{.Name}})){{end}}{{end}}
         
-        # Replace path parameters
-        {{range $param := $method.Parameters}}{{if and (ne $param.Name "") (contains $method.HTTPInfo.Path (printf "{%s}" $param.Name))}}{{if $param.Required}}url = url.replace("{{printf "{%s}" $param.Name}}", str({{$param.Name}})){{else}}if {{$param.Name}} is not None:
-            url = url.replace("{{printf "{%s}" $param.Name}}", str({{$param.Name}})){{end}}
-        {{end}}{{end}}
+        # Prepare payload for non-GET requests
+        payload = {}
+        {{range .Parameters}}{{if and (ne $httpInfo.Method "GET") (ne $httpInfo.Method "DELETE") (not (contains $httpInfo.Path (printf "{%s}" .Name)))}}
+        {{if .Required}}payload["{{.Name}}"] = {{.Name}}{{else}}if {{.Name}} is not None:
+            payload["{{.Name}}"] = {{.Name}}{{end}}{{end}}{{end}}
         
-        # Prepare request body
-        payload = None
-        if "{{$method.HTTPInfo.Method}}" not in ["GET", "DELETE"]:
-            body = {}
-            {{range $param := $method.Parameters}}{{if not (contains $method.HTTPInfo.Path (printf "{%s}" $param.Name))}}{{if $param.Required}}body["{{$param.Name}}"] = {{$param.Name}}{{else}}if {{$param.Name}} is not None:
-                body["{{$param.Name}}"] = {{$param.Name}}{{end}}
-            {{end}}{{end}}if body:
-                payload = body
+        # Make the API request
+        result = await make_api_request(url, "{{.HTTPInfo.Method}}", payload if payload else None)
+        {{else}}
+        result = {"error": "No HTTP endpoint defined for this method"}{{end}}
         
-        result = await make_api_request(url, "{{$method.HTTPInfo.Method}}", payload){{else}}result = {"error": "No HTTP endpoint defined"}{{end}}
-        
+        # Return formatted JSON response
         import json
         return json.dumps(result, indent=2)
         
     except Exception as e:
+        # Handle any errors that occur during execution
         import json
-        return json.dumps({"error": f"Tool execution failed: {str(e)}"}, indent=2)
+        error_result = {
+            "error": f"Tool execution failed: {str(e)}",
+            "tool_name": "{{.ToolName}}",
+            "error_type": type(e).__name__
+        }
+        return json.dumps(error_result, indent=2)
 
 {{end}}
 if __name__ == '__main__':
+    # Run the MCP server
     mcp.run()
 `
