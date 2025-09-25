@@ -44,10 +44,12 @@ type MCPMethod struct {
 }
 
 type MCPParameter struct {
-	Name        string
-	Type        string
-	Required    bool
-	Description string
+	Name        string      `json:"-"`
+	Type        interface{} `json:"type,omitempty"`
+	Required    bool        `json:"-"`
+	Description string      `json:"description,omitempty"`
+	Properties  interface{} `json:"properties,omitempty"`
+	Items       interface{} `json:"items,omitempty"`
 }
 
 type HTTPInfo struct {
@@ -76,7 +78,7 @@ func extractMCPMethods(gen *protogen.Plugin) []*MCPMethod {
 						HTTPInfo:    extractHTTPInfo(method),
 						Input:       method.Input,
 						Output:      method.Output,
-						Parameters:  extractParameters(method.Input),
+						Parameters:  extractParameters(method.Input, 0),
 					}
 					mcpMethods = append(mcpMethods, mcpMethod)
 				}
@@ -114,17 +116,17 @@ func hasHTTPAnnotation(method *protogen.Method) bool {
 	return proto.HasExtension(options, httpannotations.E_Http)
 }
 
-func extractParameters(inputType *protogen.Message) []*MCPParameter {
+func extractParameters(inputType *protogen.Message, depth int) []*MCPParameter {
 	var parameters []*MCPParameter
 
 	if inputType != nil {
 		for _, field := range inputType.Fields {
 			param := &MCPParameter{
 				Name:        string(field.Desc.Name()),
-				Type:        getFieldType(field),
-				Required:    isFieldRequired(field),
 				Description: extractFieldDescription(field),
+				Required:    isFieldRequired(field),
 			}
+			getFieldType(field, param, depth+1)
 			parameters = append(parameters, param)
 		}
 	}
@@ -154,25 +156,72 @@ func isFieldRequired(field *protogen.Field) bool {
 	return false
 }
 
-func getFieldType(field *protogen.Field) string {
+func getFieldType(field *protogen.Field, param *MCPParameter, depth int) {
 	// Check if the field is repeated (array/list)
 	if field.Desc.Cardinality() == protoreflect.Repeated {
-		return "list"
+		param.Type = "array"
+		items := &MCPParameter{}
+		param.Items = items
+		// Recurse to get the type of the items in the array
+		// Create a temporary field descriptor for the underlying type
+		// This is a bit of a hack, as we don't have a direct way to get a singular field
+		// We'll just handle the kind
+		switch field.Desc.Kind() {
+		case protoreflect.StringKind:
+			items.Type = "string"
+		case protoreflect.Int32Kind, protoreflect.Int64Kind:
+			items.Type = "integer"
+		case protoreflect.BoolKind:
+			items.Type = "boolean"
+		case protoreflect.MessageKind:
+			items.Type = "object"
+			if depth < 5 { // Limit recursion depth
+				properties := make(map[string]*MCPParameter)
+				for _, f := range field.Message.Fields {
+					prop := &MCPParameter{
+						Name:        string(f.Desc.Name()),
+						Description: extractFieldDescription(f),
+						Required:    isFieldRequired(f),
+					}
+					getFieldType(f, prop, depth+1)
+					properties[prop.Name] = prop
+				}
+				items.Properties = properties
+			}
+		case protoreflect.EnumKind:
+			items.Type = "string"
+		default:
+			items.Type = "string"
+		}
+		return
 	}
 
 	switch field.Desc.Kind() {
 	case protoreflect.StringKind:
-		return "string"
+		param.Type = "string"
 	case protoreflect.Int32Kind, protoreflect.Int64Kind:
-		return "integer"
+		param.Type = "integer"
 	case protoreflect.BoolKind:
-		return "boolean"
+		param.Type = "boolean"
 	case protoreflect.MessageKind:
-		return "object"
+		param.Type = "object"
+		if depth < 5 { // Limit recursion depth
+			properties := make(map[string]*MCPParameter)
+			for _, f := range field.Message.Fields {
+				prop := &MCPParameter{
+					Name:        string(f.Desc.Name()),
+					Description: extractFieldDescription(f),
+					Required:    isFieldRequired(f),
+				}
+				getFieldType(f, prop, depth+1)
+				properties[prop.Name] = prop
+			}
+			param.Properties = properties
+		}
 	case protoreflect.EnumKind:
-		return "string"
+		param.Type = "string"
 	default:
-		return "string"
+		param.Type = "string"
 	}
 }
 
@@ -252,6 +301,24 @@ func generateMCPServer(gen *protogen.Plugin, mcpMethods []*MCPMethod) {
 	funcMap := template.FuncMap{
 		"contains": strings.Contains,
 		"printf":   fmt.Sprintf,
+		"getPythonType": func(param *MCPParameter) string {
+			if param.Type == "string" {
+				return "str"
+			}
+			if param.Type == "integer" {
+				return "int"
+			}
+			if param.Type == "boolean" {
+				return "bool"
+			}
+			if param.Type == "array" {
+				return "list"
+			}
+			if param.Type == "object" {
+				return "dict"
+			}
+			return "Any"
+		},
 	}
 
 	var buf bytes.Buffer
@@ -283,7 +350,7 @@ const mcpServerTemplate = `#!/usr/bin/env python3
 MCP Server for {{.ServiceName}} - Auto-generated from Protocol Buffers
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -327,7 +394,7 @@ async def make_api_request(url: str, method: str = "GET", payload: Optional[dict
 # MCP Tools
 {{range $method := .Methods}}
 @mcp.tool()
-async def {{$method.ToolName}}({{range $i, $param := $method.Parameters}}{{if $i}}, {{end}}{{$param.Name}}: {{if $param.Required}}{{if eq $param.Type "string"}}str{{else if eq $param.Type "integer"}}int{{else if eq $param.Type "boolean"}}bool{{else if eq $param.Type "list"}}list{{else}}dict{{end}}{{else}}Optional[{{if eq $param.Type "string"}}str{{else if eq $param.Type "integer"}}int{{else if eq $param.Type "boolean"}}bool{{else if eq $param.Type "list"}}list{{else}}dict{{end}}] = None{{end}}{{end}}) -> str:
+async def {{$method.ToolName}}({{range $i, $param := $method.Parameters}}{{if $i}}, {{end}}{{$param.Name}}: {{if $param.Required}}{{getPythonType $param}}{{else}}Optional[{{getPythonType $param}}] = None{{end}}{{end}}) -> str:
     """{{$method.Description}}
 
     {{if $method.HTTPInfo}}HTTP: {{$method.HTTPInfo.Method}} {{$method.HTTPInfo.Path}}{{end}}

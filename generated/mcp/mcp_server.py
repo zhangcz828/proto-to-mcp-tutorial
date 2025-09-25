@@ -3,7 +3,7 @@
 MCP Server for BookstoreService - Auto-generated from Protocol Buffers
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -84,12 +84,28 @@ async def get_book(book_id: str) -> str:
 
 @mcp.tool()
 async def create_book(book: dict) -> str:
-    """Create a new book
+    """Create a new book in the system.
+
+    INSTRUCTIONS:
+    1. For each required field:
+        - If the user has not provided a value , prompt the user to supply it (otherwise the request will fail).
+    2. For optional fields:
+        - If not set by the user, do not set the field in the request and omit them.
+
+    Example payload for creating a book:
+    {
+        "book": {                // required
+            "bookId": "string", // optional
+            "title": "string", // required
+            "author": "string", // required
+            "pages": int // required
+        }
+    }
 
     HTTP: POST /v1/books
     
     Parameters:
-    - book (object): The book object to create
+    - book (object, required): The book object to create.
 
     Returns:
     - str: JSON formatted response from the API containing the result or error information
@@ -97,18 +113,14 @@ async def create_book(book: dict) -> str:
     try:
         url = "http://localhost:8080/v1/books"
         
-        # Replace path parameters
-        
         
         # Prepare request body
-        payload = None
-        if "POST" not in ["GET", "DELETE"]:
-            body = {}
-            body["book"] = book
-            if body:
-                payload = body
-        
-        result = await make_api_request(url, "POST", payload)
+        payload = {
+            "book": book
+        }
+
+        # Make the API request
+        result = await make_api_request(url, "POST", payload if payload else None)
         
         import json
         return json.dumps(result, indent=2)
