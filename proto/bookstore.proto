@@ -17,11 +17,27 @@ service BookstoreService {
     };
   }
   
-  // Create a new book
+  // Create a new book in the system.
+  //
+  // INSTRUCTIONS:
+  //   1. For each required field:
+  //      - If the user has not provided a value , prompt the user to supply it (otherwise the request will fail).
+  //   2. For optional fields:
+  //      - If not set by the user, do not set the field in the request and omit them.
+  //
+  // Example payload for creating a book:
+  // {
+  //   "book": {
+  //     "bookId": "string", // optional
+  //     "title": "string", // required
+  //     "author": "string", // required
+  //     "pages": int // required
+  //   }
+  // }
   rpc CreateBook(CreateBookRequest) returns (Book) {
     option (google.api.http) = {
       post: "/v1/books"
-      body: "book"
+      body: "*"
     };
     option (mcp.v1.tool) = {
       enabled: true
@@ -42,7 +58,7 @@ message GetBookRequest {
 }
 
 message CreateBookRequest {
-  // The book object to create
+  // The book object to create.
   Book book = 1;
 }
 

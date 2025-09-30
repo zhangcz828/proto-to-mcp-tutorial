@@ -10,13 +10,30 @@ paths:
         post:
             tags:
                 - BookstoreService
-            description: Create a new book
+            description: |-
+                Create a new book in the system.
+
+                 INSTRUCTIONS:
+                   1. For each required field:
+                      - If the user has not provided a value , prompt the user to supply it (otherwise the request will fail).
+                   2. For optional fields:
+                      - If not set by the user, do not set the field in the request and omit them.
+
+                 Example payload for creating a book:
+                 {
+                   "book": {
+                     "bookId": "string", // optional
+                     "title": "string", // required
+                     "author": "string", // required
+                     "pages": int // required
+                   }
+                 }
             operationId: BookstoreService_CreateBook
             requestBody:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/bookstore.v1.Book'
+                            $ref: '#/components/schemas/bookstore.v1.CreateBookRequest'
                 required: true
             responses:
                 "200":
@@ -71,6 +88,13 @@ components:
                 pages:
                     type: integer
                     format: int32
+        bookstore.v1.CreateBookRequest:
+            type: object
+            properties:
+                book:
+                    allOf:
+                        - $ref: '#/components/schemas/bookstore.v1.Book'
+                    description: The book object to create.
         google.protobuf.Any:
             type: object
             properties:

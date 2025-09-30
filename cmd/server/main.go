@@ -29,7 +29,20 @@ func (s *server) GetBook(ctx context.Context, req *pb.GetBookRequest) (*pb.Book,
 }
 
 func (s *server) CreateBook(ctx context.Context, req *pb.CreateBookRequest) (*pb.Book, error) {
+	switch {
+	case req.Book == nil:
+		return nil, fmt.Errorf("book is required")
+	case req.Book.Title == "":
+		return nil, fmt.Errorf("book title is required")
+	case req.Book.Author == "":
+		return nil, fmt.Errorf("book author is required")
+	case req.Book.Pages <= 0:
+		return nil, fmt.Errorf("book pages must be greater than zero")
+	}
+
 	book := req.Book
+
+	fmt.Println("Creating book:", book.Author, book.Title, book.Pages)
 	if book.BookId == "" {
 		book.BookId = fmt.Sprintf("book-%d", len(s.books)+1)
 	}

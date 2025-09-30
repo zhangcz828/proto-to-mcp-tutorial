@@ -1,2 +1,8 @@
 fastmcp
 httpx
+langchain_mcp_adapters
+langgraph
+langchain_openai
+langchain
+ollama
+langchain_ollama

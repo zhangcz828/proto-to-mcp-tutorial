@@ -29,7 +29,24 @@ const (
 type BookstoreServiceClient interface {
 	// Get a book by ID
 	GetBook(ctx context.Context, in *GetBookRequest, opts ...grpc.CallOption) (*Book, error)
-	// Create a new book
+	// Create a new book in the system.
+	//
+	// INSTRUCTIONS:
+	//  1. For each required field:
+	//     - If the user has not provided a value , prompt the user to supply it (otherwise the request will fail).
+	//  2. For optional fields:
+	//     - If not set by the user, do not set the field in the request and omit them.
+	//
+	// Example payload for creating a book:
+	//
+	//	{
+	//	  "book": {
+	//	    "bookId": "string", // optional
+	//	    "title": "string", // required
+	//	    "author": "string", // required
+	//	    "pages": int // required
+	//	  }
+	//	}
 	CreateBook(ctx context.Context, in *CreateBookRequest, opts ...grpc.CallOption) (*Book, error)
 }
 
@@ -65,7 +82,24 @@ func (c *bookstoreServiceClient) CreateBook(ctx context.Context, in *CreateBookR
 type BookstoreServiceServer interface {
 	// Get a book by ID
 	GetBook(context.Context, *GetBookRequest) (*Book, error)
-	// Create a new book
+	// Create a new book in the system.
+	//
+	// INSTRUCTIONS:
+	//  1. For each required field:
+	//     - If the user has not provided a value , prompt the user to supply it (otherwise the request will fail).
+	//  2. For optional fields:
+	//     - If not set by the user, do not set the field in the request and omit them.
+	//
+	// Example payload for creating a book:
+	//
+	//	{
+	//	  "book": {
+	//	    "bookId": "string", // optional
+	//	    "title": "string", // required
+	//	    "author": "string", // required
+	//	    "pages": int // required
+	//	  }
+	//	}
 	CreateBook(context.Context, *CreateBookRequest) (*Book, error)
 	mustEmbedUnimplementedBookstoreServiceServer()
 }
