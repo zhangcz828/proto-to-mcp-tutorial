@@ -8,7 +8,7 @@ load_dotenv()
 
 model = ChatOpenAI(
     model="gpt-4o",
-    api_key=os.getenv("OPENAPI_API_KEY"),
+    api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 client = MultiServerMCPClient(
